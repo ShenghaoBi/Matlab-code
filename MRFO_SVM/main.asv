@@ -1,0 +1,137 @@
+tic % 计时器
+% 清空环境，准备数据
+close all
+clear;
+clc;
+format compact
+addpath('addpath_svm')
+%% 读取数据
+data=xlsread('wine.xls');%3分类
+n=randperm(size(data,1));
+data=data(n,:);
+input=data(:,1:end-1);
+output=data(:,end);
+%% 选择测试集与训练集
+p=round(size(data,1)*0.2);
+train_wine=input(1:p,:);
+test_wine=input(p+1:end,:);
+train_wine_labels=output(1:p,:);
+test_wine_labels=output(p+1:end,:);
+label_test=test_wine_labels;
+
+[mtrain,ntrain] = size(train_wine);%%行表示样本数 列表示特征
+[mtest,ntest] = size(test_wine);
+dataset = [train_wine;test_wine];
+
+[dataset_scale,ps] = mapminmax(dataset',0,1);
+dataset_scale = dataset_scale';
+train_wine = dataset_scale(1:mtrain,:);
+test_wine = dataset_scale( (mtrain+1):(mtrain+mtest),: );
+%% %%%%%%%%%%%%%%优化SVM中的参数c和g开始%%%%%%%%%%%%%%%%%%%%
+Max_iter=10; % 最大迭代次数
+N=30;
+% 待优化参数信息
+dim=2; % 待优化参数个数，次数为c和g两个
+ub=[300 10]; % 参数取值上界，此处将c和g的上界设为500  100
+lb=[0.0001 0.0001]; % 参数取值下界，此处将c和g的下界设为0.0001
+v=5; %交叉验证
+fobj=@(x)fun(x,train_wine_labels,train_wine,v);
+%% 迭代计算
+Tn_sim=svm(train_wine,train_wine_labels,test_wine,test_wine_labels);
+[best_p,fbest,fbest_store ]=MRFO(N,Max_iter,lb,ub,dim,fobj);         %
+
+%% 寻优结果展示
+bestc=best_p(1);
+bestg=best_p(2);
+% figure;
+% hold on;
+% fbest_store = round(fbest_store*10000)/10000;
+% plot(100-fbest_store(1:Max_iter,1),'r*-','LineWidth',1.5);
+% hold on
+% plot(100-fbest_store(1:Max_iter,2),'bo-','LineWidth',1.5);
+% legend('\fontname{宋体}最佳适应度','\fontname{宋体}平均适应度');
+% xlabel('\fontname{宋体}进化代数','FontSize',12);
+% ylabel('\fontname{宋体}适应度','FontSize',12);
+% axis([0 Max_iter-1 0 100]);
+% grid on;
+% axis auto;
+% set(gca,'FontName','Times New Roman','FontSize',12);
+% 
+% line1 = '\fontname{宋体}适应度曲线\fontname{Times New Roman}Accuracy[MRFO method]';
+% line3 = ['\fontname{Times New Roman}Best c=',num2str(bestc),' \fontname{Times New Roman}g=',num2str(bestg), ...
+%     ' \fontname{Times New Roman}CVAccuracy=',num2str((100-fbest)),'%'];
+% title({line1;line3},'FontSize',12);
+
+%% 打印参数选择结果，这里输出的是最后一次尊海鞘算法寻优得到的参数
+
+disp('打印选择结果');
+str=sprintf('Best c = %g，Best g = %g',bestc,bestg);
+disp(str)
+
+%% 利用最佳的参数进行SVM网络训练
+cmd_svm = ['-c ',num2str(bestc),' -g ',num2str(bestg)];
+model_svm = svmtrain(train_wine_labels,train_wine,cmd_svm);
+
+%% SVM网络预测
+[predict_label,accuracy,decision_values] = svmpredict(train_wine_labels,test_wine,model_svm);
+[predict_label,accuracy,decision_values] = svmpredict(test_wine_labels,test_wine,model_svm);
+[~,new_n]=sort(label_test);
+label_test=label_test(new_n);
+pre_gsofwa=predict_label(new_n);
+Tn_sim=Tn_sim(new_n);
+
+figure
+stem(label_test)
+hold on
+plot(Tn_sim,'*')
+xlim([1 length(label_test)]);
+title('\fontname{宋体}未优化后的\fontname{Times New Roman}SVM')
+legend('\fontname{宋体}期望输出','\fontname{宋体}实际输出','location','northwest')
+
+figure
+stem(label_test)
+hold on
+plot(pre_gsofwa,'*')
+xlim([1 length(label_test)]);
+title('\fontname{Times New Roman}MRFO\fontname{宋体}优化后的\fontname{Times New Roman}SVM')
+legend('\fontname{宋体}期望输出','\fontname{宋体}实际输出','location','northwest')
+%% 混淆矩阵
+[confusionMatrix, classOrder] = confusionmat...
+    (label_test, Tn_sim);
+figure
+
+set(gcf, 'position', [300 150 600 400])
+confusionchart(confusionMatrix, classOrder,...
+    'Title', '\fontname{Times New Roman}Testing_SVM',...
+    'RowSummary','row-normalized', ...
+    'ColumnSummary','column-normalized');
+set(gca,'FontName','Times New Roman','FontSize',12);
+
+[confusionMatrix_MRFO, classOrder] = confusionmat...
+    (label_test, pre_gsofwa);
+figure
+set(gcf, 'position', [300 150 600 400])
+confusionchart(confusionMatrix_MRFO, classOrder,...
+    'Title', '\fontname{Times New Roman}Testing_MRFO_SVM',...
+    'RowSummary','row-normalized', ...
+    'ColumnSummary','column-normalized');
+set(gca,'FontName','Times New Roman','FontSize',12);
+
+%% 六边形图
+[Metrics]=polygonareametric(label_test,pre_gsofwa);
+%% ROC曲线
+[TPR_rf,FPR_rf,TRF_rf,AUCRF_rf]=perfcurve(label_test, pre_gsofwa,1);
+figure
+plot(FPR_rf,TPR_rf,'r--','linewidth',1.5)
+xlabel('假正类率FPR');ylabel('真正类率TPR')
+hold on 
+line([0 1],[0,1],'linewidth',1,'color','b'); 
+hold on 
+axis([0 1 0 1]); 
+AUC_rf =trapz(FPR_rf,TPR_rf); 
+string={'ROC曲线结果'}; 
+title(string) 
+hold on 
+text1=strcat('随机森林 AUC=',num2str(AUC_rf)); 
+legend(text1);
+
